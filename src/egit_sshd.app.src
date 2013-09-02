@@ -1,0 +1,16 @@
+%% -*- erlang -*-
+{application, egit_sshd,
+ [{description, ""},
+  {vsn, "0.1.0"},
+  {registered, [egit_sshd_sup]},
+  {mod, {egit_sshd_app, []}},
+  {start_phases, []},
+  {applications, [
+                 kernel
+                 ,stdlib
+                 ,sasl
+                 ,lager
+                 ,ssh
+                 ]},
+  {env, []}
+ ]}.
