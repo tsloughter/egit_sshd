@@ -21,6 +21,8 @@
                ,channel
                ,port
                ,repo_dir
+               ,repo
+               ,cmd
                }).
 
 %%====================================================================
@@ -55,10 +57,14 @@ handle_ssh_msg({ssh_cm, ConnectionManager
 handle_ssh_msg({ssh_cm, ConnectionManager
                ,{exec, ChannelId, _WantReply, Cmd="git-receive-pack "++_}}
               ,State=#state{repo_dir=RepoDir}) ->
+    [_, R] = string:tokens(Cmd, " "),
+    Repo = string:strip(R, both, $'),
     Port = open_port({spawn, Cmd}, [{cd, RepoDir}, exit_status]),
     {ok, State#state{channel = ChannelId
                     ,cm = ConnectionManager
-                    ,port=Port}};
+                    ,port=Port
+                    ,cmd=push
+                    ,repo=Repo}};
 handle_ssh_msg({ssh_cm, ConnectionManager
                ,{exec, ChannelId, _WantReply, Cmd="git-upload-pack "++_}}
               ,State=#state{repo_dir=RepoDir}) ->
@@ -70,12 +76,12 @@ handle_ssh_msg({ssh_cm, ConnectionManager
                ,{exec, ChannelId, _WantReply, Cmd}}
               ,State) ->
     {ok, User} = ssh_userreg:lookup_user(ConnectionManager),
-    lager:info("at=handle_ssh_msg error=attempt_to_run_unknown_command user=~s cmd=~s", [User, Cmd]),
+    lager:error("at=handle_ssh_msg error=attempt_to_run_unknown_command user=~s cmd=~s~n", [User, Cmd]),
     {stop, ChannelId, State};
 
-handle_ssh_msg({ssh_cm, _ConnectionManager, {eof, _ChannelId}}
-              ,State=#state{port = _Port}) ->
-    {ok, State};
+handle_ssh_msg({ssh_cm, _ConnectionManager, {eof, ChannelId}}
+                   ,State=#state{port = _Port}) ->
+    {stop, ChannelId, State};
 
 handle_ssh_msg({ssh_cm, _, {signal, _, _}}, State) ->
     %% Ignore signals according to RFC 4254 section 6.9.
@@ -102,14 +108,16 @@ handle_msg({ssh_channel_up, _ChanneId, _ConnectionManager}, State) ->
     {ok, State};
 handle_msg({'EXIT', Port, _Reason}, #state{port = Port,
                                            channel = ChannelId} = State) ->
-    {stop, ChannelId, State};
+    {ok, State};
 handle_msg({Port, {exit_status, Status}}, State=#state{port = Port
                                                       ,channel = ChannelId
-                                                      ,cm=ConnectionManager}) ->
+                                                      ,cm=ConnectionManager
+                                                      ,repo=_Repo
+                                                      ,cmd=_Cmd}) ->
     ssh_connection:reply_request(ConnectionManager, true,
                                  success, ChannelId),
     ssh_connection:exit_status(ConnectionManager, ChannelId, Status),
-    {stop, ChannelId, State};
+    {ok, State};
 handle_msg({Port, {data, Data}}, State=#state{port=Port
                                              ,cm=ConnectionManager
                                              ,channel=ChannelId}) ->
